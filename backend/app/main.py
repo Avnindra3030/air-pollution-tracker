@@ -2,9 +2,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from .database import connect_to_mongo, close_mongo_connection, get_database
-from .api import air_quality
-from .routes import users, locations, notifications
+from app.database import connect_to_mongo, close_mongo_connection, get_database
+from app.api import air_quality
+from app.routes import users, locations, notifications
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
