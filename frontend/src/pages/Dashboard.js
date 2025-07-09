@@ -55,25 +55,7 @@ const Dashboard = () => {
     refetchInterval: 900000, // Refetch every 15 minutes
   });
 
-  // Debug logging
-  console.log('Dashboard Debug:', {
-    selectedLocation,
-    airQualityData,
-    aqiLoading,
-    aqiError,
-    forecastData,
-    forecastLoading
-  });
 
-  // Log detailed error information
-  if (aqiError) {
-    console.error('Air Quality Error Details:', {
-      message: aqiError.message,
-      response: aqiError.response,
-      request: aqiError.request,
-      config: aqiError.config
-    });
-  }
 
   const getAQICategory = (aqi) => {
     if (aqi <= 50) return { label: 'Good', color: '#009966', severity: 'success' };
