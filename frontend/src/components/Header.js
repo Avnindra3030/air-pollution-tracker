@@ -28,6 +28,7 @@ import {
   InputLabel,
   Slider,
   Typography as MuiTypography,
+  Avatar,
 } from '@mui/material';
 import {
   Notifications as NotificationsIcon,
@@ -39,14 +40,19 @@ import {
   Info as InfoIcon,
   CheckCircle as CheckCircleIcon,
   Close as CloseIcon,
+  Person as PersonIcon,
+  Logout as LogoutIcon,
 } from '@mui/icons-material';
-import { getUserSettings, updateUserSettings } from '../services/api';
+import { getUserSettings, updateUserSettings, getCurrentUser, logoutUser } from '../services/api';
+import LoginDialog from './LoginDialog';
 
 const Header = () => {
   const [anchorEl, setAnchorEl] = useState(null);
   const [notificationsAnchor, setNotificationsAnchor] = useState(null);
   const [addLocationOpen, setAddLocationOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
   const [newLocation, setNewLocation] = useState({ name: '', lat: '', lng: '' });
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   
@@ -60,6 +66,44 @@ const Header = () => {
     language: 'en'
   });
   const [settingsLoading, setSettingsLoading] = useState(false);
+
+  // User state
+  const [currentUser, setCurrentUser] = useState(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  // Check authentication status on component mount
+  useEffect(() => {
+    checkAuthStatus();
+  }, []);
+
+  const checkAuthStatus = async () => {
+    const token = localStorage.getItem('authToken');
+    if (token) {
+      try {
+        const user = await getCurrentUser();
+        setCurrentUser(user);
+        setIsAuthenticated(true);
+      } catch (error) {
+        console.error('Error checking auth status:', error);
+        localStorage.removeItem('authToken');
+        setIsAuthenticated(false);
+        setCurrentUser(null);
+      }
+    } else {
+      setIsAuthenticated(false);
+      setCurrentUser(null);
+    }
+  };
+
+  const handleLoginSuccess = (user) => {
+    setCurrentUser(user);
+    setIsAuthenticated(true);
+    setSnackbar({
+      open: true,
+      message: 'Login successful!',
+      severity: 'success'
+    });
+  };
 
   // Sample notifications data
   const notifications = [
@@ -186,6 +230,36 @@ const Header = () => {
     setSettingsOpen(false);
   };
 
+  const handleProfile = () => {
+    setProfileOpen(true);
+    handleClose();
+  };
+
+  const handleProfileClose = () => {
+    setProfileOpen(false);
+  };
+
+  const handleLogin = () => {
+    setLoginOpen(true);
+    handleClose();
+  };
+
+  const handleLoginClose = () => {
+    setLoginOpen(false);
+  };
+
+  const handleLogout = () => {
+    logoutUser();
+    setIsAuthenticated(false);
+    setCurrentUser(null);
+    handleClose();
+    setSnackbar({
+      open: true,
+      message: 'Logged out successfully',
+      severity: 'success'
+    });
+  };
+
   const handleSettingChange = (key, value) => {
     setSettings(prev => ({
       ...prev,
@@ -218,22 +292,24 @@ const Header = () => {
           </Box>
 
           <Box display="flex" alignItems="center" gap={1}>
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<AddIcon />}
-              onClick={handleAddLocation}
-              sx={{ 
-                color: '#1976d2', 
-                borderColor: '#1976d2',
-                '&:hover': {
-                  borderColor: '#1565c0',
-                  backgroundColor: 'rgba(25, 118, 210, 0.04)'
-                }
-              }}
-            >
-              Add Location
-            </Button>
+            {isAuthenticated && (
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={handleAddLocation}
+                sx={{ 
+                  color: '#1976d2', 
+                  borderColor: '#1976d2',
+                  '&:hover': {
+                    borderColor: '#1565c0',
+                    backgroundColor: 'rgba(25, 118, 210, 0.04)'
+                  }
+                }}
+              >
+                Add Location
+              </Button>
+            )}
             
             <IconButton
               size="large"
@@ -308,9 +384,36 @@ const Header = () => {
               open={Boolean(anchorEl)}
               onClose={handleClose}
             >
-              <MenuItem onClick={handleClose}>Profile</MenuItem>
-              <MenuItem onClick={handleSettings}>Settings</MenuItem>
-              <MenuItem onClick={handleClose}>Logout</MenuItem>
+              {isAuthenticated ? (
+                <>
+                  <MenuItem onClick={handleProfile}>
+                    <ListItemIcon>
+                      <PersonIcon fontSize="small" />
+                    </ListItemIcon>
+                    Profile
+                  </MenuItem>
+                  <MenuItem onClick={handleSettings}>
+                    <ListItemIcon>
+                      <SettingsIcon fontSize="small" />
+                    </ListItemIcon>
+                    Settings
+                  </MenuItem>
+                  <Divider />
+                  <MenuItem onClick={handleLogout}>
+                    <ListItemIcon>
+                      <LogoutIcon fontSize="small" />
+                    </ListItemIcon>
+                    Logout
+                  </MenuItem>
+                </>
+              ) : (
+                <MenuItem onClick={handleLogin}>
+                  <ListItemIcon>
+                    <PersonIcon fontSize="small" />
+                  </ListItemIcon>
+                  Login
+                </MenuItem>
+              )}
             </Menu>
           </Box>
         </Toolbar>
@@ -360,6 +463,39 @@ const Header = () => {
           <Button onClick={handleAddLocationSubmit} variant="contained">
             Add Location
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Profile Dialog */}
+      <Dialog open={profileOpen} onClose={handleProfileClose} maxWidth="sm" fullWidth>
+        <DialogTitle>User Profile</DialogTitle>
+        <DialogContent>
+          {currentUser ? (
+            <Box sx={{ mt: 2 }}>
+              <Box display="flex" alignItems="center" sx={{ mb: 3 }}>
+                <Avatar sx={{ mr: 2, bgcolor: 'primary.main' }}>
+                  {currentUser.username?.charAt(0)?.toUpperCase() || 'U'}
+                </Avatar>
+                <Box>
+                  <Typography variant="h6">{currentUser.username}</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {currentUser.email}
+                  </Typography>
+                </Box>
+              </Box>
+              
+              <Divider sx={{ my: 2 }} />
+              
+              <Typography variant="body2" color="text.secondary">
+                Member since: {new Date(currentUser.created_at).toLocaleDateString()}
+              </Typography>
+            </Box>
+          ) : (
+            <Typography>Loading profile...</Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleProfileClose}>Close</Button>
         </DialogActions>
       </Dialog>
 
@@ -497,6 +633,13 @@ const Header = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Login Dialog */}
+      <LoginDialog 
+        open={loginOpen} 
+        onClose={handleLoginClose}
+        onLoginSuccess={handleLoginSuccess}
+      />
 
       {/* Snackbar for notifications */}
       <Snackbar

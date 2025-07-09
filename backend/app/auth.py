@@ -7,7 +7,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from bson import ObjectId
 import os
 
-from .database import get_users_collection
+from .database import get_users_collection, sqlite_find_one, USE_LOCAL_DB
 from .models import UserResponse
 
 # Security settings
@@ -67,27 +67,47 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # Get user from database
-    users_collection = get_users_collection()
-    user = await users_collection.find_one({"_id": ObjectId(user_id)})
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    return UserResponse(**user)
+    if USE_LOCAL_DB:
+        # SQLite operations
+        user = sqlite_find_one("users", {"id": int(user_id)})
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return UserResponse(**user)
+    else:
+        # MongoDB operations
+        users_collection = get_users_collection()
+        user = await users_collection.find_one({"_id": ObjectId(user_id)})
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return UserResponse(**user)
 
 async def authenticate_user(email: str, password: str) -> Optional[UserResponse]:
     """Authenticate a user with email and password"""
-    users_collection = get_users_collection()
-    user = await users_collection.find_one({"email": email})
-    if not user:
-        return None
-    if not verify_password(password, user["password"]):
-        return None
-    return UserResponse(**user)
+    if USE_LOCAL_DB:
+        # SQLite operations
+        user = sqlite_find_one("users", {"email": email})
+        if not user:
+            return None
+        if not verify_password(password, user["password"]):
+            return None
+        return UserResponse(**user)
+    else:
+        # MongoDB operations
+        users_collection = get_users_collection()
+        user = await users_collection.find_one({"email": email})
+        if not user:
+            return None
+        if not verify_password(password, user["password"]):
+            return None
+        return UserResponse(**user)
 
 def get_token_data(token: str) -> Optional[dict]:
     """Get token data without raising exceptions"""
