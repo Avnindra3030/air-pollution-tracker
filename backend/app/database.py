@@ -38,6 +38,7 @@ def init_local_database():
             username TEXT UNIQUE NOT NULL,
             email TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
+            full_name TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -94,6 +95,7 @@ def init_local_database():
             preferred_units TEXT DEFAULT 'metric',
             theme TEXT DEFAULT 'light',
             language TEXT DEFAULT 'en',
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users (id)
         )
     ''')
@@ -172,4 +174,108 @@ def get_user_settings_collection():
     """Get user settings collection"""
     if USE_LOCAL_DB:
         return get_local_db()
-    return get_database()["user_settings"] 
+    return get_database()["user_settings"]
+
+# SQLite-specific helper functions
+def sqlite_find_one(table, query, db_conn=None):
+    """SQLite equivalent of MongoDB find_one"""
+    if db_conn is None:
+        db_conn = get_local_db()
+    
+    cursor = db_conn.cursor()
+    
+    # Build WHERE clause
+    where_clause = " AND ".join([f"{k} = ?" for k in query.keys()])
+    values = list(query.values())
+    
+    sql = f"SELECT * FROM {table} WHERE {where_clause}"
+    cursor.execute(sql, values)
+    
+    result = cursor.fetchone()
+    if result:
+        return dict(result)
+    return None
+
+def sqlite_insert_one(table, data, db_conn=None):
+    """SQLite equivalent of MongoDB insert_one"""
+    if db_conn is None:
+        db_conn = get_local_db()
+    
+    cursor = db_conn.cursor()
+    
+    # Remove _id if present (SQLite uses auto-increment)
+    if '_id' in data:
+        del data['_id']
+    
+    columns = list(data.keys())
+    placeholders = ", ".join(["?" for _ in columns])
+    values = list(data.values())
+    
+    sql = f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders})"
+    cursor.execute(sql, values)
+    
+    db_conn.commit()
+    return cursor.lastrowid
+
+def sqlite_replace_one(table, query, data, db_conn=None):
+    """SQLite equivalent of MongoDB replace_one"""
+    if db_conn is None:
+        db_conn = get_local_db()
+    
+    cursor = db_conn.cursor()
+    
+    # Remove _id if present
+    if '_id' in data:
+        del data['_id']
+    
+    # Build SET clause
+    set_clause = ", ".join([f"{k} = ?" for k in data.keys()])
+    set_values = list(data.values())
+    
+    # Build WHERE clause
+    where_clause = " AND ".join([f"{k} = ?" for k in query.keys()])
+    where_values = list(query.values())
+    
+    sql = f"UPDATE {table} SET {set_clause} WHERE {where_clause}"
+    cursor.execute(sql, set_values + where_values)
+    
+    db_conn.commit()
+    return cursor.rowcount > 0
+
+def sqlite_update_one(table, query, update_data, db_conn=None):
+    """SQLite equivalent of MongoDB update_one"""
+    if db_conn is None:
+        db_conn = get_local_db()
+    
+    cursor = db_conn.cursor()
+    
+    # Build SET clause
+    set_clause = ", ".join([f"{k} = ?" for k in update_data.keys()])
+    set_values = list(update_data.values())
+    
+    # Build WHERE clause
+    where_clause = " AND ".join([f"{k} = ?" for k in query.keys()])
+    where_values = list(query.values())
+    
+    sql = f"UPDATE {table} SET {set_clause} WHERE {where_clause}"
+    cursor.execute(sql, set_values + where_values)
+    
+    db_conn.commit()
+    return cursor.rowcount > 0
+
+def sqlite_delete_one(table, query, db_conn=None):
+    """SQLite equivalent of MongoDB delete_one"""
+    if db_conn is None:
+        db_conn = get_local_db()
+    
+    cursor = db_conn.cursor()
+    
+    # Build WHERE clause
+    where_clause = " AND ".join([f"{k} = ?" for k in query.keys()])
+    values = list(query.values())
+    
+    sql = f"DELETE FROM {table} WHERE {where_clause}"
+    cursor.execute(sql, values)
+    
+    db_conn.commit()
+    return cursor.rowcount > 0 

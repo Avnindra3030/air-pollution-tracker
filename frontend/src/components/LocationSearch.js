@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Paper,
   TextField,
@@ -7,49 +7,67 @@ import {
   Typography,
   Chip,
   Button,
+  CircularProgress,
+  Alert,
 } from '@mui/material';
 import { LocationOn as LocationIcon } from '@mui/icons-material';
+import { searchLocations } from '../services/api';
 
 const LocationSearch = ({ selectedLocation, onLocationChange }) => {
-  // const [searchValue, setSearchValue] = useState(''); // unused
+  const [searchValue, setSearchValue] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  // Mock cities data - in a real app, this would come from an API
-  const cities = [
+  // Popular cities for quick access
+  const popularCities = [
     { name: 'New York, NY', lat: 40.7128, lng: -74.0060 },
     { name: 'Los Angeles, CA', lat: 34.0522, lng: -118.2437 },
     { name: 'Chicago, IL', lat: 41.8781, lng: -87.6298 },
-    { name: 'Houston, TX', lat: 29.7604, lng: -95.3698 },
-    { name: 'Phoenix, AZ', lat: 33.4484, lng: -112.0740 },
-    { name: 'Philadelphia, PA', lat: 39.9526, lng: -75.1652 },
-    { name: 'San Antonio, TX', lat: 29.4241, lng: -98.4936 },
-    { name: 'San Diego, CA', lat: 32.7157, lng: -117.1611 },
-    { name: 'Dallas, TX', lat: 32.7767, lng: -96.7970 },
-    { name: 'San Jose, CA', lat: 37.3382, lng: -121.8863 },
-    { name: 'Austin, TX', lat: 30.2672, lng: -97.7431 },
-    { name: 'Jacksonville, FL', lat: 30.3322, lng: -81.6557 },
-    { name: 'Fort Worth, TX', lat: 32.7555, lng: -97.3308 },
-    { name: 'Columbus, OH', lat: 39.9612, lng: -82.9988 },
-    { name: 'Charlotte, NC', lat: 35.2271, lng: -80.8431 },
-    { name: 'San Francisco, CA', lat: 37.7749, lng: -122.4194 },
-    { name: 'Indianapolis, IN', lat: 39.7684, lng: -86.1581 },
-    { name: 'Seattle, WA', lat: 47.6062, lng: -122.3321 },
-    { name: 'Denver, CO', lat: 39.7392, lng: -104.9903 },
-    { name: 'Washington, DC', lat: 38.9072, lng: -77.0369 },
     { name: 'Delhi, India', lat: 28.6139, lng: 77.2090 },
     { name: 'Mumbai, India', lat: 19.0760, lng: 72.8777 },
     { name: 'Bangalore, India', lat: 12.9716, lng: 77.5946 },
     { name: 'Chennai, India', lat: 13.0827, lng: 80.2707 },
     { name: 'Kolkata, India', lat: 22.5726, lng: 88.3639 },
-    { name: 'Hyderabad, India', lat: 17.3850, lng: 78.4867 },
-    { name: 'Ahmedabad, India', lat: 23.0225, lng: 72.5714 },
-    { name: 'Pune, India', lat: 18.5204, lng: 73.8567 },
-    { name: 'Jaipur, India', lat: 26.9124, lng: 75.7873 },
-    { name: 'Lucknow, India', lat: 26.8467, lng: 80.9462 },
+    { name: 'London, UK', lat: 51.5074, lng: -0.1278 },
+    { name: 'Tokyo, Japan', lat: 35.6762, lng: 139.6503 },
+    { name: 'Paris, France', lat: 48.8566, lng: 2.3522 },
+    { name: 'Beijing, China', lat: 39.9042, lng: 116.4074 },
   ];
+
+  // Search cities when input changes
+  useEffect(() => {
+    const searchCities = async () => {
+      if (searchValue.length < 2) {
+        setSearchResults([]);
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        const results = await searchLocations(searchValue);
+        setSearchResults(results || []);
+      } catch (err) {
+        console.error('Error searching cities:', err);
+        setError('Failed to search cities. Please try again.');
+        setSearchResults([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    // Debounce search
+    const timeoutId = setTimeout(searchCities, 300);
+    return () => clearTimeout(timeoutId);
+  }, [searchValue]);
 
   const handleLocationSelect = (event, newValue) => {
     if (newValue) {
       onLocationChange(newValue);
+      setSearchValue('');
+      setSearchResults([]);
     }
   };
 
@@ -68,11 +86,20 @@ const LocationSearch = ({ selectedLocation, onLocationChange }) => {
         },
         (error) => {
           console.error('Error getting location:', error);
-          // Handle error - maybe show a snackbar
+          setError('Failed to get current location. Please check your browser permissions.');
         }
       );
+    } else {
+      setError('Geolocation is not supported by your browser.');
     }
   };
+
+  const handleInputChange = (event, newValue) => {
+    setSearchValue(newValue || '');
+  };
+
+  // Combine search results with popular cities
+  const allOptions = [...popularCities, ...searchResults];
 
   return (
     <Paper sx={{ p: 2, height: 'fit-content' }}>
@@ -80,11 +107,20 @@ const LocationSearch = ({ selectedLocation, onLocationChange }) => {
         Search Location
       </Typography>
       
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+      
       <Autocomplete
-        value={cities.find(city => city.name === selectedLocation.name) || null}
+        value={allOptions.find(city => city.name === selectedLocation.name) || null}
         onChange={handleLocationSelect}
-        options={cities}
+        onInputChange={handleInputChange}
+        options={allOptions}
         getOptionLabel={(option) => option.name}
+        loading={loading}
+        filterOptions={(x) => x} // Disable built-in filtering since we're using API
         renderInput={(params) => (
           <TextField
             {...params}
@@ -92,6 +128,15 @@ const LocationSearch = ({ selectedLocation, onLocationChange }) => {
             variant="outlined"
             size="small"
             fullWidth
+            InputProps={{
+              ...params.InputProps,
+              endAdornment: (
+                <>
+                  {loading ? <CircularProgress color="inherit" size={20} /> : null}
+                  {params.InputProps.endAdornment}
+                </>
+              ),
+            }}
           />
         )}
         renderOption={(props, option) => (
@@ -114,11 +159,11 @@ const LocationSearch = ({ selectedLocation, onLocationChange }) => {
       </Button>
 
       <Typography variant="subtitle2" gutterBottom>
-        Recent Locations
+        Popular Cities
       </Typography>
       
       <Box display="flex" flexWrap="wrap" gap={1}>
-        {cities.slice(0, 5).map((city) => (
+        {popularCities.slice(0, 6).map((city) => (
           <Chip
             key={city.name}
             label={city.name}

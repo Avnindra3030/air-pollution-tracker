@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   AppBar,
   Toolbar,
@@ -23,6 +23,11 @@ import {
   FormControlLabel,
   Alert,
   Snackbar,
+  Select,
+  FormControl,
+  InputLabel,
+  Slider,
+  Typography as MuiTypography,
 } from '@mui/material';
 import {
   Notifications as NotificationsIcon,
@@ -35,6 +40,7 @@ import {
   CheckCircle as CheckCircleIcon,
   Close as CloseIcon,
 } from '@mui/icons-material';
+import { getUserSettings, updateUserSettings } from '../services/api';
 
 const Header = () => {
   const [anchorEl, setAnchorEl] = useState(null);
@@ -43,6 +49,17 @@ const Header = () => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [newLocation, setNewLocation] = useState({ name: '', lat: '', lng: '' });
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  
+  // Settings state
+  const [settings, setSettings] = useState({
+    aqi_threshold: 100,
+    enable_notifications: true,
+    notification_frequency: 'daily',
+    preferred_units: 'metric',
+    theme: 'light',
+    language: 'en'
+  });
+  const [settingsLoading, setSettingsLoading] = useState(false);
 
   // Sample notifications data
   const notifications = [
@@ -68,6 +85,54 @@ const Header = () => {
       time: '1 day ago'
     }
   ];
+
+  // Load settings when settings dialog opens
+  useEffect(() => {
+    if (settingsOpen) {
+      loadUserSettings();
+    }
+  }, [settingsOpen]);
+
+  const loadUserSettings = async () => {
+    try {
+      setSettingsLoading(true);
+      const userSettings = await getUserSettings();
+      if (userSettings) {
+        setSettings(userSettings);
+      }
+    } catch (error) {
+      console.error('Error loading settings:', error);
+      setSnackbar({
+        open: true,
+        message: 'Failed to load settings',
+        severity: 'error'
+      });
+    } finally {
+      setSettingsLoading(false);
+    }
+  };
+
+  const handleSaveSettings = async () => {
+    try {
+      setSettingsLoading(true);
+      await updateUserSettings(settings);
+      setSnackbar({
+        open: true,
+        message: 'Settings saved successfully!',
+        severity: 'success'
+      });
+      handleSettingsClose();
+    } catch (error) {
+      console.error('Error saving settings:', error);
+      setSnackbar({
+        open: true,
+        message: 'Failed to save settings',
+        severity: 'error'
+      });
+    } finally {
+      setSettingsLoading(false);
+    }
+  };
 
   const handleMenu = (event) => {
     setAnchorEl(event.currentTarget);
@@ -119,6 +184,13 @@ const Header = () => {
 
   const handleSettingsClose = () => {
     setSettingsOpen(false);
+  };
+
+  const handleSettingChange = (key, value) => {
+    setSettings(prev => ({
+      ...prev,
+      [key]: value
+    }));
   };
 
   const getNotificationIcon = (type) => {
@@ -292,53 +364,136 @@ const Header = () => {
       </Dialog>
 
       {/* Settings Dialog */}
-      <Dialog open={settingsOpen} onClose={handleSettingsClose} maxWidth="sm" fullWidth>
-        <DialogTitle>Settings</DialogTitle>
+      <Dialog open={settingsOpen} onClose={handleSettingsClose} maxWidth="md" fullWidth>
+        <DialogTitle>User Settings</DialogTitle>
         <DialogContent>
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="h6" gutterBottom>Notifications</Typography>
-            <FormControlLabel
-              control={<Switch defaultChecked />}
-              label="Enable push notifications"
-            />
-            <FormControlLabel
-              control={<Switch defaultChecked />}
-              label="AQI alerts"
-            />
-            <FormControlLabel
-              control={<Switch />}
-              label="Daily air quality reports"
-            />
-          </Box>
-          <Divider sx={{ my: 2 }} />
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="h6" gutterBottom>Display</Typography>
-            <FormControlLabel
-              control={<Switch defaultChecked />}
-              label="Dark mode"
-            />
-            <FormControlLabel
-              control={<Switch defaultChecked />}
-              label="Show AQI on map"
-            />
-          </Box>
-          <Divider sx={{ my: 2 }} />
-          <Box>
-            <Typography variant="h6" gutterBottom>Data</Typography>
-            <FormControlLabel
-              control={<Switch defaultChecked />}
-              label="Auto-refresh data"
-            />
-            <FormControlLabel
-              control={<Switch />}
-              label="Save search history"
-            />
-          </Box>
+          {settingsLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+              <Typography>Loading settings...</Typography>
+            </Box>
+          ) : (
+            <Box sx={{ mt: 2 }}>
+              {/* AQI Threshold */}
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="h6" gutterBottom>AQI Alert Threshold</Typography>
+                <Box sx={{ px: 2 }}>
+                  <Slider
+                    value={settings.aqi_threshold}
+                    onChange={(e, value) => handleSettingChange('aqi_threshold', value)}
+                    min={0}
+                    max={500}
+                    step={10}
+                    marks={[
+                      { value: 0, label: '0' },
+                      { value: 100, label: '100' },
+                      { value: 200, label: '200' },
+                      { value: 300, label: '300' },
+                      { value: 500, label: '500' }
+                    ]}
+                    valueLabelDisplay="auto"
+                  />
+                  <Typography variant="body2" color="text.secondary">
+                    You'll receive alerts when AQI exceeds {settings.aqi_threshold}
+                  </Typography>
+                </Box>
+              </Box>
+
+              <Divider sx={{ my: 2 }} />
+
+              {/* Notifications */}
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="h6" gutterBottom>Notifications</Typography>
+                <FormControlLabel
+                  control={
+                    <Switch 
+                      checked={settings.enable_notifications}
+                      onChange={(e) => handleSettingChange('enable_notifications', e.target.checked)}
+                    />
+                  }
+                  label="Enable notifications"
+                />
+                <FormControl fullWidth sx={{ mt: 2 }}>
+                  <InputLabel>Notification Frequency</InputLabel>
+                  <Select
+                    value={settings.notification_frequency}
+                    onChange={(e) => handleSettingChange('notification_frequency', e.target.value)}
+                    label="Notification Frequency"
+                  >
+                    <MenuItem value="hourly">Hourly</MenuItem>
+                    <MenuItem value="daily">Daily</MenuItem>
+                    <MenuItem value="weekly">Weekly</MenuItem>
+                  </Select>
+                </FormControl>
+              </Box>
+
+              <Divider sx={{ my: 2 }} />
+
+              {/* Display Settings */}
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="h6" gutterBottom>Display</Typography>
+                <FormControl fullWidth sx={{ mb: 2 }}>
+                  <InputLabel>Theme</InputLabel>
+                  <Select
+                    value={settings.theme}
+                    onChange={(e) => handleSettingChange('theme', e.target.value)}
+                    label="Theme"
+                  >
+                    <MenuItem value="light">Light</MenuItem>
+                    <MenuItem value="dark">Dark</MenuItem>
+                    <MenuItem value="auto">Auto</MenuItem>
+                  </Select>
+                </FormControl>
+                <FormControl fullWidth>
+                  <InputLabel>Units</InputLabel>
+                  <Select
+                    value={settings.preferred_units}
+                    onChange={(e) => handleSettingChange('preferred_units', e.target.value)}
+                    label="Units"
+                  >
+                    <MenuItem value="metric">Metric</MenuItem>
+                    <MenuItem value="imperial">Imperial</MenuItem>
+                  </Select>
+                </FormControl>
+              </Box>
+
+              <Divider sx={{ my: 2 }} />
+
+              {/* Language */}
+              <Box>
+                <Typography variant="h6" gutterBottom>Language</Typography>
+                <FormControl fullWidth>
+                  <InputLabel>Language</InputLabel>
+                  <Select
+                    value={settings.language}
+                    onChange={(e) => handleSettingChange('language', e.target.value)}
+                    label="Language"
+                  >
+                    <MenuItem value="en">English</MenuItem>
+                    <MenuItem value="hi">Hindi</MenuItem>
+                    <MenuItem value="ta">Tamil</MenuItem>
+                    <MenuItem value="te">Telugu</MenuItem>
+                    <MenuItem value="bn">Bengali</MenuItem>
+                    <MenuItem value="mr">Marathi</MenuItem>
+                    <MenuItem value="gu">Gujarati</MenuItem>
+                    <MenuItem value="kn">Kannada</MenuItem>
+                    <MenuItem value="ml">Malayalam</MenuItem>
+                    <MenuItem value="pa">Punjabi</MenuItem>
+                    <MenuItem value="or">Odia</MenuItem>
+                    <MenuItem value="as">Assamese</MenuItem>
+                  </Select>
+                </FormControl>
+              </Box>
+            </Box>
+          )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleSettingsClose}>Close</Button>
-          <Button onClick={handleSettingsClose} variant="contained">
-            Save Settings
+          <Button onClick={handleSettingsClose}>Cancel</Button>
+          <Button 
+            onClick={handleSaveSettings} 
+            variant="contained"
+            disabled={settingsLoading}
+          >
+            {settingsLoading ? 'Saving...' : 'Save Settings'}
           </Button>
         </DialogActions>
       </Dialog>

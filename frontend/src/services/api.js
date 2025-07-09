@@ -29,11 +29,7 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      // Handle unauthorized access
-      localStorage.removeItem('authToken');
-      window.location.href = '/login';
-    }
+    console.error('API Error:', error.response?.data || error.message);
     return Promise.reject(error);
   }
 );
@@ -41,9 +37,7 @@ api.interceptors.response.use(
 // Air Quality API functions
 export const fetchAirQualityData = async (lat, lng) => {
   try {
-    const response = await api.get('/api/air-quality/current', {
-      params: { lat, lng }
-    });
+    const response = await api.get(`/air-quality/current?lat=${lat}&lng=${lng}`);
     return response.data;
   } catch (error) {
     console.error('Error fetching air quality data:', error);
@@ -53,9 +47,7 @@ export const fetchAirQualityData = async (lat, lng) => {
 
 export const fetchForecastData = async (lat, lng) => {
   try {
-    const response = await api.get('/api/air-quality/forecast', {
-      params: { lat, lng }
-    });
+    const response = await api.get(`/air-quality/forecast?lat=${lat}&lng=${lng}`);
     return response.data;
   } catch (error) {
     console.error('Error fetching forecast data:', error);
@@ -65,9 +57,7 @@ export const fetchForecastData = async (lat, lng) => {
 
 export const fetchHistoricalData = async (lat, lng, days = 7) => {
   try {
-    const response = await api.get('/api/air-quality/historical', {
-      params: { lat, lng, days }
-    });
+    const response = await api.get(`/air-quality/historical?lat=${lat}&lng=${lng}&days=${days}`);
     return response.data;
   } catch (error) {
     console.error('Error fetching historical data:', error);
@@ -75,13 +65,14 @@ export const fetchHistoricalData = async (lat, lng, days = 7) => {
   }
 };
 
+// Indian Cities API functions
 export const fetchIndianCities = async (state = null, search = null) => {
   try {
     const params = {};
     if (state) params.state = state;
     if (search) params.search = search;
     
-    const response = await api.get('/api/air-quality/indian-cities', { params });
+    const response = await api.get('/air-quality/indian-cities', { params });
     return response.data;
   } catch (error) {
     console.error('Error fetching Indian cities:', error);
@@ -92,29 +83,157 @@ export const fetchIndianCities = async (state = null, search = null) => {
 // Location API functions
 export const searchLocations = async (query) => {
   try {
-    const response = await api.get(`/api/locations/search`, {
-      params: { q: query }
-    });
+    const response = await api.get(`/locations/search?q=${encodeURIComponent(query)}`);
     return response.data;
   } catch (error) {
     console.error('Error searching locations:', error);
+    // Return empty array if API is not available
     return [];
   }
 };
 
-export const getLocationInfo = async (lat, lng) => {
+export const getSavedLocations = async () => {
   try {
-    const response = await api.get(`/api/locations/info`, {
-      params: { lat, lng }
-    });
+    const response = await api.get('/locations/saved');
     return response.data;
   } catch (error) {
-    console.error('Error getting location info:', error);
-    return null;
+    console.error('Error fetching saved locations:', error);
+    throw error;
   }
 };
 
-// User preferences API functions
+export const saveLocation = async (locationData) => {
+  try {
+    const response = await api.post('/locations/save', locationData);
+    return response.data;
+  } catch (error) {
+    console.error('Error saving location:', error);
+    throw error;
+  }
+};
+
+export const deleteSavedLocation = async (locationId) => {
+  try {
+    const response = await api.delete(`/locations/saved/${locationId}`);
+    return response.data;
+  } catch (error) {
+    console.error('Error deleting saved location:', error);
+    throw error;
+  }
+};
+
+// User authentication API functions
+export const registerUser = async (userData) => {
+  try {
+    const response = await api.post('/users/register', userData);
+    if (response.data.access_token) {
+      localStorage.setItem('authToken', response.data.access_token);
+    }
+    return response.data;
+  } catch (error) {
+    console.error('Error registering user:', error);
+    throw error;
+  }
+};
+
+export const loginUser = async (credentials) => {
+  try {
+    const response = await api.post('/users/login', credentials);
+    if (response.data.access_token) {
+      localStorage.setItem('authToken', response.data.access_token);
+    }
+    return response.data;
+  } catch (error) {
+    console.error('Error logging in:', error);
+    throw error;
+  }
+};
+
+export const logoutUser = () => {
+  localStorage.removeItem('authToken');
+};
+
+export const getCurrentUser = async () => {
+  try {
+    const response = await api.get('/users/me');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching current user:', error);
+    throw error;
+  }
+};
+
+export const updateUserProfile = async (userData) => {
+  try {
+    const response = await api.put('/users/me', userData);
+    return response.data;
+  } catch (error) {
+    console.error('Error updating user profile:', error);
+    throw error;
+  }
+};
+
+// User settings API functions
+export const getUserSettings = async () => {
+  try {
+    const response = await api.get('/users/settings');
+    return response.data;
+  } catch (error) {
+    console.error('Error getting user settings:', error);
+    // Return default settings if not authenticated or settings not found
+    return {
+      aqi_threshold: 100,
+      enable_notifications: true,
+      notification_frequency: 'daily',
+      preferred_units: 'metric',
+      theme: 'light',
+      language: 'en'
+    };
+  }
+};
+
+export const updateUserSettings = async (settings) => {
+  try {
+    const response = await api.put('/users/settings', settings);
+    return response.data;
+  } catch (error) {
+    console.error('Error updating user settings:', error);
+    throw error;
+  }
+};
+
+// Notifications API functions
+export const getNotifications = async () => {
+  try {
+    const response = await api.get('/notifications');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching notifications:', error);
+    throw error;
+  }
+};
+
+export const markNotificationAsRead = async (notificationId) => {
+  try {
+    const response = await api.put(`/notifications/${notificationId}/read`);
+    return response.data;
+  } catch (error) {
+    console.error('Error marking notification as read:', error);
+    throw error;
+  }
+};
+
+export const deleteNotification = async (notificationId) => {
+  try {
+    const response = await api.delete(`/notifications/${notificationId}`);
+    return response.data;
+  } catch (error) {
+    console.error('Error deleting notification:', error);
+    throw error;
+  }
+};
+
+// User preferences API functions (legacy - keeping for compatibility)
 export const saveUserPreferences = async (preferences) => {
   try {
     const response = await api.post('/api/user/preferences', preferences);
