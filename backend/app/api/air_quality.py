@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 import requests
 
-router = APIRouter(prefix="/api/air-quality", tags=["Air Quality"])
+router = APIRouter(prefix="/air-quality", tags=["Air Quality"])
 
 class AirQualityResponse(BaseModel):
     aqi: int
