@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.database import connect_to_mongo, close_mongo_connection, get_database
-from app.api import air_quality
+from app.api.air_quality import router as air_quality_router
 from app.routes import users, locations, notifications
 
 @asynccontextmanager
@@ -35,7 +35,7 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(air_quality.router)
+app.include_router(air_quality_router)
 app.include_router(users.router)
 app.include_router(locations.router)
 app.include_router(notifications.router)

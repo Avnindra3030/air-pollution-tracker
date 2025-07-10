@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   Container,
   Grid,
@@ -44,40 +44,59 @@ const Dashboard = () => {
   const [activeTab, setActiveTab] = useState(0);
 
   const { data: airQualityData, isLoading: aqiLoading, error: aqiError } = useQuery({
-    queryKey: ['airQuality', selectedLocation],
+    queryKey: ['airQuality', selectedLocation.lat, selectedLocation.lng],
     queryFn: () => fetchAirQualityData(selectedLocation.lat, selectedLocation.lng),
     refetchInterval: 300000, // Refetch every 5 minutes
   });
 
   const { data: forecastData, isLoading: forecastLoading } = useQuery({
-    queryKey: ['forecast', selectedLocation],
+    queryKey: ['forecast', selectedLocation.lat, selectedLocation.lng],
     queryFn: () => fetchForecastData(selectedLocation.lat, selectedLocation.lng),
     refetchInterval: 900000, // Refetch every 15 minutes
   });
 
-
-
-  const getAQICategory = (aqi) => {
+  const getAQICategory = useCallback((aqi) => {
     if (aqi <= 50) return { label: 'Good', color: '#009966', severity: 'success' };
     if (aqi <= 100) return { label: 'Moderate', color: '#ffde33', severity: 'warning' };
     if (aqi <= 150) return { label: 'Unhealthy for Sensitive Groups', color: '#ff9933', severity: 'warning' };
     if (aqi <= 200) return { label: 'Unhealthy', color: '#cc0033', severity: 'error' };
     if (aqi <= 300) return { label: 'Very Unhealthy', color: '#660099', severity: 'error' };
     return { label: 'Hazardous', color: '#7e0023', severity: 'error' };
-  };
+  }, []);
 
-  const handleTabChange = (event, newValue) => {
+  const handleTabChange = useCallback((event, newValue) => {
     setActiveTab(newValue);
-  };
+  }, []);
 
-  const handleIndianCitySelect = (city) => {
+  const handleLocationChange = useCallback((newLocation) => {
+    setSelectedLocation(newLocation);
+  }, []);
+
+  const handleIndianCitySelect = useCallback((city) => {
     setSelectedLocation({
       lat: city.lat,
       lng: city.lng,
       name: `${city.name}, ${city.state}`
     });
     setActiveTab(0); // Switch to main dashboard
-  };
+  }, []);
+
+  const handleGlobalCitySelect = useCallback((city) => {
+    setSelectedLocation(city);
+    setActiveTab(0);
+  }, []);
+
+  // Memoize popular cities to prevent re-creation
+  const popularGlobalCities = useMemo(() => [
+    { name: 'New York, USA', lat: 40.7128, lng: -74.0060 },
+    { name: 'London, UK', lat: 51.5074, lng: -0.1278 },
+    { name: 'Tokyo, Japan', lat: 35.6762, lng: 139.6503 },
+    { name: 'Paris, France', lat: 48.8566, lng: 2.3522 },
+    { name: 'Beijing, China', lat: 39.9042, lng: 116.4074 },
+    { name: 'Sydney, Australia', lat: -33.8688, lng: 151.2093 },
+    { name: 'Toronto, Canada', lat: 43.6532, lng: -79.3832 },
+    { name: 'Berlin, Germany', lat: 52.5200, lng: 13.4050 },
+  ], []);
 
   return (
     <Container maxWidth="xl" sx={{ mt: 3, mb: 3 }}>
@@ -114,7 +133,7 @@ const Dashboard = () => {
           <Grid item xs={12} md={4}>
             <LocationSearch
               selectedLocation={selectedLocation}
-              onLocationChange={setSelectedLocation}
+              onLocationChange={handleLocationChange}
             />
           </Grid>
 
@@ -206,16 +225,7 @@ const Dashboard = () => {
             Popular Global Cities:
           </Typography>
           <Grid container spacing={2}>
-            {[
-              { name: 'New York, USA', lat: 40.7128, lng: -74.0060 },
-              { name: 'London, UK', lat: 51.5074, lng: -0.1278 },
-              { name: 'Tokyo, Japan', lat: 35.6762, lng: 139.6503 },
-              { name: 'Paris, France', lat: 48.8566, lng: 2.3522 },
-              { name: 'Beijing, China', lat: 39.9042, lng: 116.4074 },
-              { name: 'Sydney, Australia', lat: -33.8688, lng: 151.2093 },
-              { name: 'Toronto, Canada', lat: 43.6532, lng: -79.3832 },
-              { name: 'Berlin, Germany', lat: 52.5200, lng: 13.4050 },
-            ].map((city) => (
+            {popularGlobalCities.map((city) => (
               <Grid item xs={12} sm={6} md={3} key={city.name}>
                 <Paper 
                   sx={{ 
@@ -223,10 +233,7 @@ const Dashboard = () => {
                     cursor: 'pointer',
                     '&:hover': { backgroundColor: 'action.hover' }
                   }}
-                  onClick={() => {
-                    setSelectedLocation(city);
-                    setActiveTab(0);
-                  }}
+                  onClick={() => handleGlobalCitySelect(city)}
                 >
                   <Typography variant="subtitle1" fontWeight="bold">
                     {city.name}

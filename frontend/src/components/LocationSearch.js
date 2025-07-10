@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Paper,
   TextField,
@@ -18,9 +18,10 @@ const LocationSearch = ({ selectedLocation, onLocationChange }) => {
   const [searchResults, setSearchResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [inputValue, setInputValue] = useState('');
 
   // Popular cities for quick access
-  const popularCities = [
+  const popularCities = useMemo(() => [
     { name: 'New York, NY', lat: 40.7128, lng: -74.0060 },
     { name: 'Los Angeles, CA', lat: 34.0522, lng: -118.2437 },
     { name: 'Chicago, IL', lat: 41.8781, lng: -87.6298 },
@@ -33,7 +34,7 @@ const LocationSearch = ({ selectedLocation, onLocationChange }) => {
     { name: 'Tokyo, Japan', lat: 35.6762, lng: 139.6503 },
     { name: 'Paris, France', lat: 48.8566, lng: 2.3522 },
     { name: 'Beijing, China', lat: 39.9042, lng: 116.4074 },
-  ];
+  ], []);
 
   // Search cities when input changes
   useEffect(() => {
@@ -63,15 +64,21 @@ const LocationSearch = ({ selectedLocation, onLocationChange }) => {
     return () => clearTimeout(timeoutId);
   }, [searchValue]);
 
-  const handleLocationSelect = (event, newValue) => {
+  const handleLocationSelect = useCallback((event, newValue) => {
     if (newValue) {
       onLocationChange(newValue);
       setSearchValue('');
+      setInputValue(newValue.name);
       setSearchResults([]);
     }
-  };
+  }, [onLocationChange]);
 
-  const handleCurrentLocation = () => {
+  const handleInputChange = useCallback((event, newInputValue) => {
+    setInputValue(newInputValue);
+    setSearchValue(newInputValue);
+  }, []);
+
+  const handleCurrentLocation = useCallback(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
@@ -83,6 +90,7 @@ const LocationSearch = ({ selectedLocation, onLocationChange }) => {
             lng: longitude,
           };
           onLocationChange(newLocation);
+          setInputValue(newLocation.name);
         },
         (error) => {
           console.error('Error getting location:', error);
@@ -92,14 +100,15 @@ const LocationSearch = ({ selectedLocation, onLocationChange }) => {
     } else {
       setError('Geolocation is not supported by your browser.');
     }
-  };
+  }, [onLocationChange]);
 
-  const handleInputChange = (event, newValue) => {
-    setSearchValue(newValue || '');
-  };
+  const handleCityClick = useCallback((city) => {
+    onLocationChange(city);
+    setInputValue(city.name);
+  }, [onLocationChange]);
 
   // Combine search results with popular cities
-  const allOptions = [...popularCities, ...searchResults];
+  const allOptions = useMemo(() => [...popularCities, ...searchResults], [popularCities, searchResults]);
 
   return (
     <Paper sx={{ p: 2, height: 'fit-content' }}>
@@ -114,9 +123,10 @@ const LocationSearch = ({ selectedLocation, onLocationChange }) => {
       )}
       
       <Autocomplete
-        value={allOptions.find(city => city.name === selectedLocation.name) || null}
-        onChange={handleLocationSelect}
+        value={selectedLocation.name ? selectedLocation : null}
+        inputValue={inputValue}
         onInputChange={handleInputChange}
+        onChange={handleLocationSelect}
         options={allOptions}
         getOptionLabel={(option) => option.name}
         loading={loading}
@@ -168,7 +178,7 @@ const LocationSearch = ({ selectedLocation, onLocationChange }) => {
             key={city.name}
             label={city.name}
             size="small"
-            onClick={() => onLocationChange(city)}
+            onClick={() => handleCityClick(city)}
             variant={selectedLocation.name === city.name ? 'filled' : 'outlined'}
             color={selectedLocation.name === city.name ? 'primary' : 'default'}
           />

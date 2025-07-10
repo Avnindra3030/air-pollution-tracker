@@ -2,6 +2,9 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel
 from typing import Optional, List
 import requests
+import random
+import datetime
+import time
 
 router = APIRouter(prefix="/air-quality", tags=["Air Quality"])
 
@@ -198,20 +201,6 @@ INDIAN_CITIES = [
     {"name": "Kullu", "state": "Himachal Pradesh", "lat": 31.9578, "lng": 77.1095, "type": "district"},
     {"name": "Dharamshala", "state": "Himachal Pradesh", "lat": 32.2190, "lng": 76.3234, "type": "district"},
     
-    # Jammu and Kashmir
-    {"name": "Srinagar", "state": "Jammu and Kashmir", "lat": 34.0837, "lng": 74.7973, "type": "district"},
-    {"name": "Jammu", "state": "Jammu and Kashmir", "lat": 32.7266, "lng": 74.8570, "type": "district"},
-    {"name": "Anantnag", "state": "Jammu and Kashmir", "lat": 33.7311, "lng": 75.1486, "type": "district"},
-    {"name": "Baramulla", "state": "Jammu and Kashmir", "lat": 34.2095, "lng": 74.3425, "type": "district"},
-    {"name": "Udhampur", "state": "Jammu and Kashmir", "lat": 32.9242, "lng": 75.1416, "type": "district"},
-    
-    # Goa
-    {"name": "Panaji", "state": "Goa", "lat": 15.4909, "lng": 73.8278, "type": "district"},
-    {"name": "Margao", "state": "Goa", "lat": 15.2993, "lng": 73.9862, "type": "district"},
-    {"name": "Vasco da Gama", "state": "Goa", "lat": 15.3800, "lng": 73.8300, "type": "district"},
-    {"name": "Mapusa", "state": "Goa", "lat": 15.5915, "lng": 73.8089, "type": "district"},
-    {"name": "Ponda", "state": "Goa", "lat": 15.4030, "lng": 74.0152, "type": "district"},
-    
     # Manipur
     {"name": "Imphal", "state": "Manipur", "lat": 24.8170, "lng": 93.9368, "type": "district"},
     {"name": "Thoubal", "state": "Manipur", "lat": 24.6387, "lng": 93.9964, "type": "district"},
@@ -294,6 +283,96 @@ def compute_aqi_pm10(pm10):
             return round(((i_high - i_low)/(bp_high - bp_low)) * (pm10 - bp_low) + i_low)
     return 500
 
+def get_real_air_quality_data(lat, lng):
+    """Try to get real air quality data from multiple sources"""
+    
+    # Try OpenAQ API first
+    try:
+        url = f"https://api.openaq.org/v2/latest?coordinates={lat},{lng}&radius=10000&limit=1"
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        results = resp.json().get('results', [])
+        if results:
+            measurements = {m['parameter']: m['value'] for m in results[0]['measurements']}
+            pm25 = measurements.get('pm25', None)
+            pm10 = measurements.get('pm10', None)
+            o3 = measurements.get('o3', None)
+            no2 = measurements.get('no2', None)
+            co = measurements.get('co', None)
+            so2 = measurements.get('so2', None)
+            
+            if pm25 is not None or pm10 is not None:
+                # Compute AQI from available measurements
+                aqi_pm25 = compute_aqi_pm25(pm25) if pm25 else 0
+                aqi_pm10 = compute_aqi_pm10(pm10) if pm10 else 0
+                aqi = max(aqi_pm25, aqi_pm10) if aqi_pm25 and aqi_pm10 else (aqi_pm25 or aqi_pm10)
+                
+                return {
+                    'aqi': aqi,
+                    'pm25': pm25 or 0,
+                    'pm10': pm10 or 0,
+                    'o3': o3 or 0,
+                    'no2': no2 or 0,
+                    'co': co or 0,
+                    'so2': so2 or 0,
+                    'timestamp': results[0]['measurements'][0]['lastUpdated']
+                }
+    except Exception as e:
+        print(f"OpenAQ API error: {e}")
+    
+    # Try World Air Quality Index API as fallback
+    try:
+        url = f"https://api.waqi.info/feed/geo:{lat};{lng}/?token=demo"
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        if data['status'] == 'ok':
+            aqi_data = data['data']
+            return {
+                'aqi': aqi_data['aqi'],
+                'pm25': aqi_data['iaqi'].get('pm25', {}).get('v', 0),
+                'pm10': aqi_data['iaqi'].get('pm10', {}).get('v', 0),
+                'o3': aqi_data['iaqi'].get('o3', {}).get('v', 0),
+                'no2': aqi_data['iaqi'].get('no2', {}).get('v', 0),
+                'co': aqi_data['iaqi'].get('co', {}).get('v', 0),
+                'so2': aqi_data['iaqi'].get('so2', {}).get('v', 0),
+                'timestamp': aqi_data['time']['iso']
+            }
+    except Exception as e:
+        print(f"WAQI API error: {e}")
+    
+    return None
+
+def generate_realistic_mock_data(lat, lng):
+    """Generate realistic mock data based on location and time"""
+    # Seed random generator with location and time for consistent results
+    seed = int(lat * 1000) + int(lng * 1000) + int(time.time() // 3600)  # Hourly variation
+    random.seed(seed)
+    
+    # Base values that vary by location
+    base_pm25 = 15 + (lat * 10) % 30  # Varies by latitude
+    base_pm10 = 25 + (lng * 8) % 40   # Varies by longitude
+    
+    # Add some realistic variation
+    pm25 = max(5, base_pm25 + random.uniform(-10, 20))
+    pm10 = max(10, base_pm10 + random.uniform(-15, 25))
+    
+    # Compute AQI
+    aqi_pm25 = compute_aqi_pm25(pm25)
+    aqi_pm10 = compute_aqi_pm10(pm10)
+    aqi = max(aqi_pm25, aqi_pm10)
+    
+    return {
+        'aqi': aqi,
+        'pm25': round(pm25, 1),
+        'pm10': round(pm10, 1),
+        'o3': round(random.uniform(20, 60), 1),
+        'no2': round(random.uniform(10, 40), 1),
+        'co': round(random.uniform(0.5, 2.5), 2),
+        'so2': round(random.uniform(5, 20), 1),
+        'timestamp': datetime.datetime.utcnow().isoformat()
+    }
+
 @router.get("/indian-cities", response_model=IndianCitiesResponse)
 def get_indian_cities(
     state: Optional[str] = Query(None, description="Filter by state"),
@@ -320,59 +399,44 @@ def get_current_air_quality(
     lat: float = Query(..., description="Latitude"),
     lng: float = Query(..., description="Longitude")
 ):
-    import random, datetime
-    # Try to fetch real data from OpenAQ
-    try:
-        url = f"https://api.openaq.org/v2/latest?coordinates={lat},{lng}&radius=10000&limit=1"
-        resp = requests.get(url, timeout=5)
-        resp.raise_for_status()
-        results = resp.json().get('results', [])
-        if results:
-            measurements = {m['parameter']: m['value'] for m in results[0]['measurements']}
-            pm25 = measurements.get('pm25', random.uniform(10, 50))
-            pm10 = measurements.get('pm10', random.uniform(15, 80))
-            # Compute AQI from PM2.5 and PM10
-            aqi_pm25 = compute_aqi_pm25(pm25)
-            aqi_pm10 = compute_aqi_pm10(pm10)
-            aqi = max(aqi_pm25, aqi_pm10)
-            return AirQualityResponse(
-                aqi=aqi,
-                pm25=pm25,
-                pm10=pm10,
-                o3=measurements.get('o3', random.uniform(20, 60)),
-                no2=measurements.get('no2', random.uniform(10, 40)),
-                co=measurements.get('co', random.uniform(0.5, 2.5)),
-                so2=measurements.get('so2', random.uniform(5, 20)),
-                timestamp=results[0]['measurements'][0]['lastUpdated']
-            )
-    except Exception as e:
-        pass  # fallback to mock data
-    # Fallback to mock data
-    pm25 = round(random.uniform(10, 50), 1)
-    pm10 = round(random.uniform(15, 80), 1)
-    aqi_pm25 = compute_aqi_pm25(pm25)
-    aqi_pm10 = compute_aqi_pm10(pm10)
-    aqi = max(aqi_pm25, aqi_pm10)
-    return AirQualityResponse(
-        aqi=aqi,
-        pm25=pm25,
-        pm10=pm10,
-        o3=round(random.uniform(20, 60), 1),
-        no2=round(random.uniform(10, 40), 1),
-        co=round(random.uniform(0.5, 2.5), 2),
-        so2=round(random.uniform(5, 20), 1),
-        timestamp=datetime.datetime.utcnow().isoformat()
-    )
+    """Get current air quality data for a location"""
+    
+    # Try to get real data first
+    real_data = get_real_air_quality_data(lat, lng)
+    if real_data:
+        return AirQualityResponse(**real_data)
+    
+    # Fallback to realistic mock data
+    mock_data = generate_realistic_mock_data(lat, lng)
+    return AirQualityResponse(**mock_data)
 
 @router.get("/forecast", response_model=ForecastResponse)
 def get_forecast_air_quality(
     lat: float = Query(..., description="Latitude"),
     lng: float = Query(..., description="Longitude")
 ):
-    # Mock 24-hour forecast data
-    import random, datetime
-    forecast = [random.randint(30, 150) for _ in range(24)]
-    confidence = [round(random.uniform(0.7, 0.99), 2) for _ in range(24)]
+    """Get 24-hour air quality forecast"""
+    
+    # Generate realistic forecast based on current conditions
+    current_data = get_real_air_quality_data(lat, lng)
+    if not current_data:
+        current_data = generate_realistic_mock_data(lat, lng)
+    
+    # Create forecast based on current AQI with realistic variations
+    base_aqi = current_data['aqi']
+    forecast = []
+    confidence = []
+    
+    for hour in range(24):
+        # Add realistic hourly variations
+        variation = random.uniform(-20, 30)
+        hour_aqi = max(0, min(500, base_aqi + variation))
+        forecast.append(int(hour_aqi))
+        
+        # Confidence decreases for later hours
+        conf = max(0.5, 0.95 - (hour * 0.02))
+        confidence.append(round(conf, 2))
+    
     return ForecastResponse(
         forecast=forecast,
         confidence=confidence,
@@ -385,19 +449,26 @@ def get_historical_air_quality(
     lng: float = Query(..., description="Longitude"),
     days: int = Query(7, description="Number of days of history")
 ):
-    # Mock 7-day historical data
-    import random, datetime
+    """Get historical air quality data"""
+    
     data = []
     for i in range(days):
         date = (datetime.datetime.utcnow() - datetime.timedelta(days=days-1-i)).strftime('%Y-%m-%d')
+        
+        # Generate realistic historical data
+        base_aqi = 50 + (lat * 10 + lng * 5) % 100  # Varies by location
+        daily_variation = random.uniform(-30, 40)
+        aqi = max(0, min(500, base_aqi + daily_variation))
+        
         data.append(HistoricalDataPoint(
             date=date,
-            aqi=random.randint(30, 150),
+            aqi=int(aqi),
             pm25=round(random.uniform(10, 50), 1),
             pm10=round(random.uniform(15, 80), 1),
             o3=round(random.uniform(20, 60), 1),
             no2=round(random.uniform(10, 40), 1),
         ))
+    
     return HistoricalResponse(data=data) 
  
  

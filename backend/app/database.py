@@ -278,4 +278,69 @@ def sqlite_delete_one(table, query, db_conn=None):
     cursor.execute(sql, values)
     
     db_conn.commit()
-    return cursor.rowcount > 0 
+    return cursor.rowcount > 0
+
+def sqlite_find_many(table, query, limit=None, skip=0, order_by=None, db_conn=None):
+    """SQLite equivalent of MongoDB find_many"""
+    if db_conn is None:
+        db_conn = get_local_db()
+    
+    cursor = db_conn.cursor()
+    
+    # Build WHERE clause
+    where_clause = " AND ".join([f"{k} = ?" for k in query.keys()]) if query else "1=1"
+    values = list(query.values()) if query else []
+    
+    # Build SQL query
+    sql = f"SELECT * FROM {table} WHERE {where_clause}"
+    
+    # Add ORDER BY if specified
+    if order_by:
+        sql += f" ORDER BY {order_by}"
+    
+    # Add LIMIT and OFFSET
+    if limit:
+        sql += f" LIMIT {limit} OFFSET {skip}"
+    
+    cursor.execute(sql, values)
+    
+    results = cursor.fetchall()
+    return [dict(result) for result in results]
+
+def sqlite_delete_many(table, query, db_conn=None):
+    """SQLite equivalent of MongoDB delete_many"""
+    if db_conn is None:
+        db_conn = get_local_db()
+    
+    cursor = db_conn.cursor()
+    
+    # Build WHERE clause
+    where_clause = " AND ".join([f"{k} = ?" for k in query.keys()]) if query else "1=1"
+    values = list(query.values()) if query else []
+    
+    sql = f"DELETE FROM {table} WHERE {where_clause}"
+    cursor.execute(sql, values)
+    
+    db_conn.commit()
+    return cursor.rowcount
+
+def sqlite_update_many(table, query, update_data, db_conn=None):
+    """SQLite equivalent of MongoDB update_many"""
+    if db_conn is None:
+        db_conn = get_local_db()
+    
+    cursor = db_conn.cursor()
+    
+    # Build SET clause
+    set_clause = ", ".join([f"{k} = ?" for k in update_data.keys()])
+    set_values = list(update_data.values())
+    
+    # Build WHERE clause
+    where_clause = " AND ".join([f"{k} = ?" for k in query.keys()]) if query else "1=1"
+    where_values = list(query.values()) if query else []
+    
+    sql = f"UPDATE {table} SET {set_clause} WHERE {where_clause}"
+    cursor.execute(sql, set_values + where_values)
+    
+    db_conn.commit()
+    return cursor.rowcount 

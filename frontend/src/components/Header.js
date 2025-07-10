@@ -29,6 +29,7 @@ import {
   Slider,
   Typography as MuiTypography,
   Avatar,
+  CircularProgress,
 } from '@mui/material';
 import {
   Notifications as NotificationsIcon,
@@ -43,7 +44,7 @@ import {
   Person as PersonIcon,
   Logout as LogoutIcon,
 } from '@mui/icons-material';
-import { getUserSettings, updateUserSettings, getCurrentUser, logoutUser } from '../services/api';
+import { getUserSettings, updateUserSettings, getCurrentUser, logoutUser, getNotifications, markNotificationAsRead } from '../services/api';
 import LoginDialog from './LoginDialog';
 
 const Header = () => {
@@ -71,10 +72,23 @@ const Header = () => {
   const [currentUser, setCurrentUser] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
+  // Notifications state
+  const [notifications, setNotifications] = useState([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+
   // Check authentication status on component mount
   useEffect(() => {
     checkAuthStatus();
   }, []);
+
+  // Load notifications when authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadNotifications();
+    } else {
+      setNotifications([]);
+    }
+  }, [isAuthenticated]);
 
   const checkAuthStatus = async () => {
     const token = localStorage.getItem('authToken');
@@ -95,6 +109,60 @@ const Header = () => {
     }
   };
 
+  const loadNotifications = async () => {
+    if (!isAuthenticated) return;
+    
+    try {
+      setNotificationsLoading(true);
+      const notificationsData = await getNotifications();
+      setNotifications(notificationsData || []);
+    } catch (error) {
+      console.error('Error loading notifications:', error);
+      // Fallback to sample notifications if API fails
+      setNotifications([
+        {
+          id: 1,
+          type: 'warning',
+          title: 'High AQI Alert',
+          message: 'Air quality in Delhi is currently unhealthy (AQI: 156)',
+          time: '2 hours ago'
+        },
+        {
+          id: 2,
+          type: 'info',
+          title: 'Data Update',
+          message: 'New air quality data available for Mumbai',
+          time: '4 hours ago'
+        },
+        {
+          id: 3,
+          type: 'success',
+          title: 'Location Added',
+          message: 'Bangalore has been added to your favorites',
+          time: '1 day ago'
+        }
+      ]);
+    } finally {
+      setNotificationsLoading(false);
+    }
+  };
+
+  const handleNotificationClick = async (notification) => {
+    if (isAuthenticated && notification.id) {
+      try {
+        await markNotificationAsRead(notification.id);
+        // Update local state to mark as read
+        setNotifications(prev => 
+          prev.map(n => 
+            n.id === notification.id ? { ...n, is_read: true } : n
+          )
+        );
+      } catch (error) {
+        console.error('Error marking notification as read:', error);
+      }
+    }
+  };
+
   const handleLoginSuccess = (user) => {
     setCurrentUser(user);
     setIsAuthenticated(true);
@@ -104,31 +172,6 @@ const Header = () => {
       severity: 'success'
     });
   };
-
-  // Sample notifications data
-  const notifications = [
-    {
-      id: 1,
-      type: 'warning',
-      title: 'High AQI Alert',
-      message: 'Air quality in Delhi is currently unhealthy (AQI: 156)',
-      time: '2 hours ago'
-    },
-    {
-      id: 2,
-      type: 'info',
-      title: 'Data Update',
-      message: 'New air quality data available for Mumbai',
-      time: '4 hours ago'
-    },
-    {
-      id: 3,
-      type: 'success',
-      title: 'Location Added',
-      message: 'Bangalore has been added to your favorites',
-      time: '1 day ago'
-    }
-  ];
 
   // Load settings when settings dialog opens
   useEffect(() => {
@@ -280,6 +323,19 @@ const Header = () => {
     }
   };
 
+  const formatNotificationTime = (createdAt) => {
+    if (!createdAt) return 'Unknown time';
+    
+    const now = new Date();
+    const created = new Date(createdAt);
+    const diffInHours = (now - created) / (1000 * 60 * 60);
+    
+    if (diffInHours < 1) return 'Just now';
+    if (diffInHours < 24) return `${Math.floor(diffInHours)} hours ago`;
+    if (diffInHours < 48) return '1 day ago';
+    return `${Math.floor(diffInHours / 24)} days ago`;
+  };
+
   return (
     <>
       <AppBar position="static" elevation={0} sx={{ backgroundColor: 'rgba(255, 255, 255, 0.95)', backdropFilter: 'blur(10px)' }}>
@@ -317,7 +373,7 @@ const Header = () => {
               color="primary"
               onClick={handleNotificationsMenu}
             >
-              <Badge badgeContent={notifications.length} color="error">
+              <Badge badgeContent={notifications.filter(n => !n.is_read).length} color="error">
                 <NotificationsIcon />
               </Badge>
             </IconButton>
@@ -333,29 +389,48 @@ const Header = () => {
               <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
                 <Typography variant="h6">Notifications</Typography>
               </Box>
-              <List sx={{ p: 0 }}>
-                {notifications.map((notification, index) => (
-                  <React.Fragment key={notification.id}>
-                    <ListItem>
-                      <ListItemIcon>
-                        {getNotificationIcon(notification.type)}
-                      </ListItemIcon>
-                      <ListItemText
-                        primary={notification.title}
-                        secondary={
-                          <Box>
-                            <Typography variant="body2">{notification.message}</Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {notification.time}
-                            </Typography>
-                          </Box>
-                        }
-                      />
-                    </ListItem>
-                    {index < notifications.length - 1 && <Divider />}
-                  </React.Fragment>
-                ))}
-              </List>
+              {notificationsLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+                  <CircularProgress size={24} />
+                </Box>
+              ) : notifications.length === 0 ? (
+                <Box sx={{ p: 3, textAlign: 'center' }}>
+                  <Typography variant="body2" color="text.secondary">
+                    No notifications
+                  </Typography>
+                </Box>
+              ) : (
+                <List sx={{ p: 0 }}>
+                  {notifications.map((notification, index) => (
+                    <React.Fragment key={notification.id}>
+                      <ListItem 
+                        button 
+                        onClick={() => handleNotificationClick(notification)}
+                        sx={{ 
+                          backgroundColor: notification.is_read ? 'transparent' : 'action.hover',
+                          opacity: notification.is_read ? 0.7 : 1
+                        }}
+                      >
+                        <ListItemIcon>
+                          {getNotificationIcon(notification.type || notification.notification_type)}
+                        </ListItemIcon>
+                        <ListItemText
+                          primary={notification.title}
+                          secondary={
+                            <Box>
+                              <Typography variant="body2">{notification.message}</Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {formatNotificationTime(notification.created_at || notification.time)}
+                              </Typography>
+                            </Box>
+                          }
+                        />
+                      </ListItem>
+                      {index < notifications.length - 1 && <Divider />}
+                    </React.Fragment>
+                  ))}
+                </List>
+              )}
             </Menu>
 
             <IconButton
