@@ -1,3 +1,6 @@
+import os
+from dotenv import load_dotenv
+import httpx
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 from typing import Optional, List
@@ -5,6 +8,10 @@ import requests
 import random
 import datetime
 import time
+
+load_dotenv()
+OPENAQ_API_KEY = os.getenv("OPENAQ_API_KEY")
+HEADERS = {"X-API-Key": OPENAQ_API_KEY}
 
 router = APIRouter(prefix="/air-quality", tags=["Air Quality"])
 
@@ -283,64 +290,82 @@ def compute_aqi_pm10(pm10):
             return round(((i_high - i_low)/(bp_high - bp_low)) * (pm10 - bp_low) + i_low)
     return 500
 
-def get_real_air_quality_data(lat, lng):
-    """Try to get real air quality data from multiple sources"""
-    
-    # Try OpenAQ API first
-    try:
-        url = f"https://api.openaq.org/v2/latest?coordinates={lat},{lng}&radius=10000&limit=1"
-        resp = requests.get(url, timeout=10)
+async def get_location_id(lat, lng):
+    url = f"https://api.openaq.org/v2/locations?coordinates={lat},{lng}&radius=10000&limit=1&order_by=distance"
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(url, headers=HEADERS, timeout=10)
         resp.raise_for_status()
         results = resp.json().get('results', [])
         if results:
-            measurements = {m['parameter']: m['value'] for m in results[0]['measurements']}
-            pm25 = measurements.get('pm25', None)
-            pm10 = measurements.get('pm10', None)
-            o3 = measurements.get('o3', None)
-            no2 = measurements.get('no2', None)
-            co = measurements.get('co', None)
-            so2 = measurements.get('so2', None)
-            
-            if pm25 is not None or pm10 is not None:
-                # Compute AQI from available measurements
-                aqi_pm25 = compute_aqi_pm25(pm25) if pm25 else 0
-                aqi_pm10 = compute_aqi_pm10(pm10) if pm10 else 0
-                aqi = max(aqi_pm25, aqi_pm10) if aqi_pm25 and aqi_pm10 else (aqi_pm25 or aqi_pm10)
-                
-                return {
-                    'aqi': aqi,
-                    'pm25': pm25 or 0,
-                    'pm10': pm10 or 0,
-                    'o3': o3 or 0,
-                    'no2': no2 or 0,
-                    'co': co or 0,
-                    'so2': so2 or 0,
-                    'timestamp': results[0]['measurements'][0]['lastUpdated']
-                }
+            return results[0].get('id')
+    return None
+
+async def get_real_air_quality_data(lat, lng):
+    try:
+        location_id = await get_location_id(lat, lng)
+        if not location_id:
+            raise Exception("No OpenAQ location found for these coordinates.")
+        url = f"https://api.openaq.org/v3/measurements?location_id={location_id}&limit=100&order_by=datetime&sort=desc"
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, headers=HEADERS, timeout=10)
+            resp.raise_for_status()
+            meas_results = resp.json().get('results', [])
+            if meas_results:
+                measurements = {}
+                for m in meas_results:
+                    param = m.get('parameter')
+                    value = m.get('value')
+                    if param and value is not None and param not in measurements:
+                        measurements[param] = value
+                pm25 = measurements.get('pm25', None)
+                pm10 = measurements.get('pm10', None)
+                o3 = measurements.get('o3', None)
+                no2 = measurements.get('no2', None)
+                co = measurements.get('co', None)
+                so2 = measurements.get('so2', None)
+                if pm25 is not None or pm10 is not None:
+                    aqi_pm25 = compute_aqi_pm25(pm25) if pm25 else 0
+                    aqi_pm10 = compute_aqi_pm10(pm10) if pm10 else 0
+                    aqi = max(aqi_pm25, aqi_pm10) if aqi_pm25 and aqi_pm10 else (aqi_pm25 or aqi_pm10)
+                    return {
+                        'aqi': aqi,
+                        'pm25': pm25 or 0,
+                        'pm10': pm10 or 0,
+                        'o3': o3 or 0,
+                        'no2': no2 or 0,
+                        'co': co or 0,
+                        'so2': so2 or 0,
+                        'timestamp': meas_results[0].get('date', {}).get('utc', '')
+                    }
     except Exception as e:
         print(f"OpenAQ API error: {e}")
-    
-    # Try World Air Quality Index API as fallback
+    return None
+
+async def get_real_forecast_data(lat, lng):
     try:
-        url = f"https://api.waqi.info/feed/geo:{lat};{lng}/?token=demo"
-        resp = requests.get(url, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        if data['status'] == 'ok':
-            aqi_data = data['data']
-            return {
-                'aqi': aqi_data['aqi'],
-                'pm25': aqi_data['iaqi'].get('pm25', {}).get('v', 0),
-                'pm10': aqi_data['iaqi'].get('pm10', {}).get('v', 0),
-                'o3': aqi_data['iaqi'].get('o3', {}).get('v', 0),
-                'no2': aqi_data['iaqi'].get('no2', {}).get('v', 0),
-                'co': aqi_data['iaqi'].get('co', {}).get('v', 0),
-                'so2': aqi_data['iaqi'].get('so2', {}).get('v', 0),
-                'timestamp': aqi_data['time']['iso']
-            }
+        location_id = await get_location_id(lat, lng)
+        if not location_id:
+            raise Exception("No OpenAQ location found for these coordinates.")
+        url = f"https://api.openaq.org/v3/forecast?location_id={location_id}"
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, headers=HEADERS, timeout=10)
+            resp.raise_for_status()
+            forecast_results = resp.json().get('results', [])
+            if forecast_results:
+                # Parse forecast for 24 hours (pm25 or aqi)
+                forecast = []
+                for entry in forecast_results:
+                    if entry.get('parameter') == 'pm25':
+                        forecast.append(entry.get('value'))
+                        if len(forecast) == 24:
+                            break
+                # Fallback: if less than 24, pad with last value
+                if forecast:
+                    while len(forecast) < 24:
+                        forecast.append(forecast[-1])
+                    return {'forecast': forecast, 'timestamp': forecast_results[0].get('date', {}).get('utc', '')}
     except Exception as e:
-        print(f"WAQI API error: {e}")
-    
+        print(f"OpenAQ API error: {e}")
     return None
 
 def generate_realistic_mock_data(lat, lng):
@@ -394,54 +419,29 @@ def get_indian_cities(
         total_count=len(cities)
     )
 
-@router.get("/current", response_model=AirQualityResponse)
-def get_current_air_quality(
-    lat: float = Query(..., description="Latitude"),
-    lng: float = Query(..., description="Longitude")
-):
-    """Get current air quality data for a location"""
-    
-    # Try to get real data first
-    real_data = get_real_air_quality_data(lat, lng)
+@router.get("/current")
+async def get_current_air_quality(lat: float = Query(...), lng: float = Query(...)):
+    real_data = await get_real_air_quality_data(lat, lng)
     if real_data:
-        return AirQualityResponse(**real_data)
-    
-    # Fallback to realistic mock data
+        return real_data
+    # fallback to mock
     mock_data = generate_realistic_mock_data(lat, lng)
-    return AirQualityResponse(**mock_data)
+    return mock_data
 
-@router.get("/forecast", response_model=ForecastResponse)
-def get_forecast_air_quality(
-    lat: float = Query(..., description="Latitude"),
-    lng: float = Query(..., description="Longitude")
-):
-    """Get 24-hour air quality forecast"""
-    
-    # Generate realistic forecast based on current conditions
-    current_data = get_real_air_quality_data(lat, lng)
-    if not current_data:
-        current_data = generate_realistic_mock_data(lat, lng)
-    
-    # Create forecast based on current AQI with realistic variations
+@router.get("/forecast")
+async def get_forecast_air_quality(lat: float = Query(...), lng: float = Query(...)):
+    real_data = await get_real_forecast_data(lat, lng)
+    if real_data:
+        return real_data
+    # fallback to mock
+    current_data = generate_realistic_mock_data(lat, lng)
     base_aqi = current_data['aqi']
     forecast = []
-    confidence = []
-    
     for hour in range(24):
-        # Add realistic hourly variations
         variation = random.uniform(-20, 30)
         hour_aqi = max(0, min(500, base_aqi + variation))
         forecast.append(int(hour_aqi))
-        
-        # Confidence decreases for later hours
-        conf = max(0.5, 0.95 - (hour * 0.02))
-        confidence.append(round(conf, 2))
-    
-    return ForecastResponse(
-        forecast=forecast,
-        confidence=confidence,
-        timestamp=datetime.datetime.utcnow().isoformat()
-    )
+    return {'forecast': forecast, 'timestamp': current_data['timestamp']}
 
 @router.get("/historical", response_model=HistoricalResponse)
 def get_historical_air_quality(

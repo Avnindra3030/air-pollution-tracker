@@ -107,8 +107,17 @@ const LocationSearch = ({ selectedLocation, onLocationChange }) => {
     setInputValue(city.name);
   }, [onLocationChange]);
 
-  // Combine search results with popular cities
-  const allOptions = useMemo(() => [...popularCities, ...searchResults], [popularCities, searchResults]);
+  // Combine search results with popular cities, and ensure selectedLocation is included
+  const allOptions = useMemo(() => {
+    const baseOptions = [...popularCities, ...searchResults];
+    const exists = baseOptions.some(
+      (opt) => opt.lat === selectedLocation.lat && opt.lng === selectedLocation.lng
+    );
+    if (!exists && selectedLocation && selectedLocation.name) {
+      return [selectedLocation, ...baseOptions];
+    }
+    return baseOptions;
+  }, [popularCities, searchResults, selectedLocation]);
 
   return (
     <Paper sx={{ p: 2, height: 'fit-content' }}>
@@ -131,6 +140,7 @@ const LocationSearch = ({ selectedLocation, onLocationChange }) => {
         getOptionLabel={(option) => option.name}
         loading={loading}
         filterOptions={(x) => x} // Disable built-in filtering since we're using API
+        isOptionEqualToValue={(option, value) => option.lat === value.lat && option.lng === value.lng}
         renderInput={(params) => (
           <TextField
             {...params}
